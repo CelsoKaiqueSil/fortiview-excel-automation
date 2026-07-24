@@ -1,0 +1,9 @@
+collected_at,device,interface,direction,value
+2026-07-01T08:00:00Z,firewall-a,WAN-1,received,1.40 GB
+2026-07-01T08:00:00Z,firewall-a,WAN-1,sent,780 MB
+2026-07-08T08:00:00Z,firewall-a,WAN-1,received,1.75 GB
+2026-07-08T08:00:00Z,firewall-a,WAN-1,sent,920 MB
+2026-07-01T08:00:00Z,firewall-b,MPLS,received,860 MB
+2026-07-01T08:00:00Z,firewall-b,MPLS,sent,420 MB
+2026-07-08T08:00:00Z,firewall-b,MPLS,received,1.10 GB
+2026-07-08T08:00:00Z,firewall-b,MPLS,sent,510 MB
