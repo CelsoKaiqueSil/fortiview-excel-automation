@@ -1,5 +1,7 @@
 # FortiView Excel Automation
 
+![FortiView Excel Automation: capa ilustrativa de dados e automação](docs/images/cover.png)
+
 [![CI](https://github.com/CelsoKaiqueSil/fortiview-excel-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/CelsoKaiqueSil/fortiview-excel-automation/actions/workflows/ci.yml)
 
 **Uma rotina recorrente, uma entrega consistente.** Automação de planilhas de
