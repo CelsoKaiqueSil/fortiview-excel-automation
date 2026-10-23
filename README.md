@@ -1,27 +1,24 @@
 # FortiView Excel Automation
 
-[Baixar Excel sintetico de exemplo](docs/examples/traffic_weekly.xlsx) · [Historico de mudancas](CHANGELOG.md)
-
-![Previa dos totais de trafego sintetico](docs/images/preview.png)
-
-**Problema:** atualizar uma planilha recorrente sem duplicar amostras ou perder o arquivo anterior.
-
-- 8 amostras e 2 equipamentos ficticios no exemplo; repetir a entrada insere zero linhas.
-- Trava exclusiva e substituicao atomica protegem contra concorrencia e falha de gravacao.
-- Correcao de uma amostra atualiza o valor e registra antes/depois na aba Alteracoes.
-
-A imagem e uma previa Python. Fatores de entrada sao binarios (1024), documentados
-explicitamente; o resumo usa `total_gib`, nao chama GiB de GB decimal.
+![FortiView Excel Automation: capa ilustrativa de dados e automação](docs/images/cover.png)
 
 [![CI](https://github.com/CelsoKaiqueSil/fortiview-excel-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/CelsoKaiqueSil/fortiview-excel-automation/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
-[![Excel](https://img.shields.io/badge/Excel-openpyxl-217346?logo=microsoftexcel&logoColor=white)](src/fortiview_excel/pipeline.py)
-[![PowerShell](https://img.shields.io/badge/PowerShell-agendamento-5391FE?logo=powershell&logoColor=white)](scripts/run_windows.ps1)
-[![Graph](https://img.shields.io/badge/Microsoft%20Graph-integração-5E5E5E?logo=microsoft)](.env.example)
-[![Data](https://img.shields.io/badge/dados-100%25%20sintéticos-14804A)](data/traffic_sample.csv)
 
-Automação demonstrativa para transformar uma rotina semanal de atualização de
-planilhas em um processo agendado, padronizado e protegido por backup.
+**Uma rotina recorrente, uma entrega consistente.** Automação de planilhas de
+tráfego com normalização, prevenção de duplicidades, backup e auditoria.
+
+[Baixar Excel de exemplo](docs/examples/traffic_weekly.xlsx) ·
+[Executar](#executar) ·
+[Agendamento Windows](scripts/run_windows.ps1) ·
+[Regras de atualização](#concorrencia-e-dados-corrigidos)
+
+## Resultado em uma leitura
+
+![Totais de tráfego calculados a partir da amostra sintética](docs/images/preview.png)
+
+<sub>Prévia Python: 8 amostras de 2 equipamentos fictícios. Conversão binária com fator 1024; o resumo usa GiB, não GB decimal.</sub>
+
+A edição pública funciona offline e não envia arquivos para OneDrive ou SharePoint.
 
 ## Fluxo
 
