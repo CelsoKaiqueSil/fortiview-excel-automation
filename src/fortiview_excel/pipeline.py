@@ -5,6 +5,10 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import os
+import tempfile
+import uuid
+from contextlib import contextmanager
 from copy import copy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,8 +54,8 @@ def backup_workbook(path: Path) -> Path | None:
         return None
     backup_dir = path.parent / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = backup_dir / f"{path.stem}_{timestamp}{path.suffix}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = backup_dir / f"{path.stem}_{timestamp}_{uuid.uuid4().hex[:8]}{path.suffix}"
     shutil.copy2(path, backup)
     return backup
 
@@ -69,12 +73,15 @@ def _create_workbook() -> Workbook:
     return workbook
 
 
-def _existing_keys(sheet) -> set[tuple[str, str, str, str]]:
-    keys: set[tuple[str, str, str, str]] = set()
-    for row in sheet.iter_rows(min_row=2, values_only=True):
+def _existing_keys(sheet) -> dict[tuple[str, str, str, str], int]:
+    keys = {}
+    for index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
         if row[0] is None:
             continue
-        keys.add((str(row[0]), str(row[1]), str(row[2]), str(row[3])))
+        key = (str(row[0]), str(row[1]), str(row[2]), str(row[3]))
+        if key in keys:
+            raise ValueError('Existing workbook contains duplicate keys; reconcile before updating.')
+        keys[key] = index
     return keys
 
 
@@ -93,7 +100,7 @@ def _refresh_summary(workbook: Workbook) -> None:
     if "Resumo" in workbook.sheetnames:
         del workbook["Resumo"]
     summary = workbook.create_sheet("Resumo", 0)
-    summary.append(["device", "direction", "total_bytes", "total_gb"])
+    summary.append(["device", "direction", "total_bytes", "total_gib"])
     data = workbook["Dados"]
     rows = list(data.iter_rows(min_row=2, values_only=True))
     frame = pd.DataFrame(rows, columns=HEADERS)
@@ -103,41 +110,89 @@ def _refresh_summary(workbook: Workbook) -> None:
             .sum()
             .sort_values(["device", "direction"])
         )
-        grouped["total_gb"] = grouped["bytes"] / 1024**3
+        grouped["total_gib"] = grouped["bytes"] / 1024**3
         for row in grouped.itertuples(index=False):
-            summary.append([row.device, row.direction, row.bytes, row.total_gb])
+            summary.append([row.device, row.direction, row.bytes, row.total_gib])
     for cell in summary[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="16845C")
     summary.freeze_panes = "A2"
 
 
+@contextmanager
+def workbook_lock(output: Path):
+    lock = output.with_suffix(output.suffix + '.lock')
+    try:
+        handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise RuntimeError('Another run owns the workbook lock. Check the running job before removing a stale lock.') from exc
+    try:
+        with os.fdopen(handle, 'w') as stream:
+            stream.write(str(os.getpid()))
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _atomic_save(workbook, output):
+    handle, name = tempfile.mkstemp(prefix=output.stem + '-', suffix='.xlsx', dir=output.parent)
+    os.close(handle)
+    temporary = Path(name)
+    try:
+        workbook.save(temporary)
+        with temporary.open('r+b') as stream:
+            os.fsync(stream.fileno())
+        import zipfile
+        with zipfile.ZipFile(temporary) as archive:
+            if archive.testzip() is not None:
+                raise ValueError('Invalid generated workbook')
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def update_workbook(input_path: str | Path, output_path: str | Path) -> dict[str, object]:
-    frame = load_traffic(input_path)
+    frame = load_traffic(input_path).drop_duplicates()
+    if frame.duplicated(['collected_at', 'device', 'interface', 'direction']).any():
+        raise ValueError('Conflicting input values for the same traffic sample.')
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    backup = backup_workbook(output)
-    workbook = load_workbook(output) if output.exists() else _create_workbook()
-    sheet = workbook["Dados"]
-    keys = _existing_keys(sheet)
-    inserted = 0
-
-    for row in frame.itertuples(index=False):
-        timestamp = row.collected_at.isoformat()
-        key = (timestamp, row.device, row.interface, row.direction)
-        if key in keys:
-            continue
-        sheet.append([timestamp, row.device, row.interface, row.direction, row.value, row.bytes])
-        _copy_previous_style(sheet, sheet.max_row)
-        keys.add(key)
-        inserted += 1
-
-    widths = {"A": 28, "B": 18, "C": 16, "D": 14, "E": 16, "F": 18}
-    for column, width in widths.items():
-        sheet.column_dimensions[column].width = width
-    _refresh_summary(workbook)
-    workbook.save(output)
-    return {"output": output, "backup": backup, "inserted": inserted}
+    with workbook_lock(output):
+        backup = backup_workbook(output)
+        workbook = load_workbook(output) if output.exists() else _create_workbook()
+        inserted = updated = unchanged = 0
+        try:
+            sheet = workbook['Dados']
+            keys = _existing_keys(sheet)
+            for row in frame.itertuples(index=False):
+                timestamp = row.collected_at.isoformat()
+                key = (timestamp, row.device, row.interface, row.direction)
+                if key in keys:
+                    index = keys[key]
+                    if sheet.cell(index, 6).value == row.bytes:
+                        unchanged += 1
+                        continue
+                    if 'Alteracoes' not in workbook.sheetnames:
+                        audit = workbook.create_sheet('Alteracoes')
+                        audit.append(['changed_at_utc', *HEADERS[:4], 'old_value', 'old_bytes', 'new_value', 'new_bytes'])
+                    workbook['Alteracoes'].append([datetime.now(timezone.utc).isoformat(), *key,
+                        sheet.cell(index, 5).value, sheet.cell(index, 6).value, row.value, row.bytes])
+                    sheet.cell(index, 5, row.value)
+                    sheet.cell(index, 6, row.bytes)
+                    updated += 1
+                    continue
+                sheet.append([timestamp, row.device, row.interface, row.direction, row.value, row.bytes])
+                _copy_previous_style(sheet, sheet.max_row)
+                keys[key] = sheet.max_row
+                inserted += 1
+            for column, width in {'A': 28, 'B': 18, 'C': 16, 'D': 14, 'E': 16, 'F': 18}.items():
+                sheet.column_dimensions[column].width = width
+            sheet.auto_filter.ref = sheet.dimensions
+            _refresh_summary(workbook)
+            _atomic_save(workbook, output)
+        finally:
+            workbook.close()
+    return {'output': output, 'backup': backup, 'inserted': inserted, 'updated': updated, 'unchanged': unchanged}
 
 
 def main() -> None:
