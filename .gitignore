@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+test-results.xml
+htmlcov/
+*.xlsx.lock
+.pbi/
+!docs/examples/*.xlsx
 .env
 output/
 backups/
